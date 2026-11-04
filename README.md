@@ -1,8 +1,22 @@
-# fritzbox-gpl-rebuild
+# openwrt-fritzbox
 
-Rebuilds the Linux kernel and every GPL kernel module of a FRITZ!Box from AVM's published GPL sources, proves each module is a drop-in replacement for AVM's binary, and repacks the official firmware with the proven modules swapped in.
+OpenWrt for FRITZ!Box, built on a kernel and drivers rebuilt from AVM's published GPL sources.
 
-Everything is resolved at runtime: the latest image and matching GPL archive from AVM's servers, the kernel release and GCC version from the image, AVM's build directories (so `__FILE__` strings match byte for byte), the backports and DirectConnect configuration, and the Freetz-NG board type for the toolchain.
+## Why not Freetz-NG
+
+Freetz-NG adds packages next to AVM's closed firmware. Its own code shows where that ends:
+
+- Kernel replacement is switched off (`FREETZ_REPLACE_KERNEL_DISABLED` in `config/mod/source.in`) for GRX5, IPQ40xx, Alder, Maple, PUMA7 and every box on FRITZ!OS 7.1x or newer except VR9 and PUMA6, so on practically every current FRITZ!Box the kernel and drivers stay AVM's binaries.
+- Extra kernel modules are built without checking them against AVM's kernel; its help text warns "Unknown symbols are possible due to avm's hacks".
+- Every FRITZ!OS release needs a hand written board entry before it builds, and its prebuilt toolchain needs a private token.
+
+This project builds the kernel and every GPL module itself and proves each one against AVM's binary (vermagic, exports, every modversions CRC), resolves model and version at runtime from AVM's servers, builds the matching GCC itself, and tests every published model daily.
+
+## Road to OpenWrt
+
+AVM's kernel ships without connection tracking, iptables or nftables: NAT and firewalling live in AVM's packet accelerator and userland. OpenWrt therefore needs our own kernel build with netfilter enabled, plus OpenWrt's userland (procd, netifd, uci, LuCI, hostapd, fw3 on the 4.9 kernel). The Wi-Fi driver is mac80211 based, so OpenWrt's hostapd drives it. Closed and out of reach: DSL (`kdsldmod`), DECT and telephony.
+
+Done: kernel and GPL modules rebuilt and proven (62 of 94 modules on the 7590 AX, FRITZ!OS 08.25), firmware unpack and repack proven file for file.
 
 ## Usage
 
