@@ -80,6 +80,57 @@ def repack(work: Path, out: Path) -> None:
                     t.addfile(ti, f)
 
 
+def unsquash(sqfs: Path, dest: Path, tools: Path) -> None:
+    """AVM ships little-endian squashfs 4, big-endian squashfs 4 (before FRITZ!OS 7.90) and squashfs 3."""
+    head = sqfs.read_bytes()[:30]
+    big = head[:4] == b"sqsh"
+    major = int.from_bytes(head[28:30], "big" if big else "little")
+    tool = "unsquashfs" if not big and major == 4 else str(tools / ("unsquashfs4-avm-be" if major == 4 else "unsquashfs3-multi"))
+    # The patched AVM unsquashfs builds predate -q; only upstream gets it.
+    subprocess.run([tool, *(["-q"] if tool == "unsquashfs" else []), "-n", "-d", str(dest), str(sqfs)], check=False, capture_output=True)
+    if not dest.exists():
+        raise RuntimeError(f"{tool} could not unpack {sqfs.name} (squashfs {major}, {'big' if big else 'little'} endian)")
+
+
+def extract(image: Path, work: Path, tools: Path) -> list[Path]:
+    """Root filesystems of any FRITZ!OS image: classic kernel/filesystem pair, FIT, or the cable boxes' uimg."""
+    shutil.rmtree(work, ignore_errors=True)
+    (work / "tar").mkdir(parents=True)
+    with tarfile.open(image) as t:
+        t.extractall(work / "tar", filter="data")
+    var = work / "tar/var"
+    parts: list[Path] = []
+    if (var / "tmp/filesystem.image").exists():
+        blob = (var / "tmp/filesystem.image").read_bytes()
+        parts.append(work / "rootfs.sqfs")
+        parts[0].write_bytes(strip_trailer(blob) if struct.unpack("<I", blob[-8:-4])[0] == TI_MAGIC else blob)
+    elif (var / "tmp/fit-image").exists():
+        # AVM prefixes the FIT with a 72 byte header; TrustZone and second-CPU images are skipped as Freetz does.
+        itb = work / "image.itb"
+        itb.write_bytes((var / "tmp/fit-image").read_bytes()[72:])
+        subprocess.run([str(tools / "fit/fitdump"), f"--output={work / 'fit'}", str(itb)], check=True, capture_output=True)
+        names = subprocess.run([str(tools / "fit/fdtget"), str(itb), "/images", "-l"], capture_output=True, text=True, check=True).stdout.split()
+        for i, name in enumerate(names, 1):
+            kind = subprocess.run([str(tools / "fit/fdtget"), str(itb), f"/images/{name}", "type"], capture_output=True, text=True).stdout.strip()
+            if kind == "filesystem" and not any(x in name for x in ("TZ_HW", "_HW0")):
+                parts.append(work / f"fit/image.{i:03d}")
+    elif (var / "firmware-update.uimg").exists():
+        subprocess.run([str(tools / "uimg"), "-u", "-n", str(work / "part"), str(var / "firmware-update.uimg")], check=True, capture_output=True)
+        parts += sorted(work.glob("part_*ROOTFS*.bin"))
+    else:
+        raise RuntimeError(f"unknown image layout: {sorted(p.name for p in var.rglob('*') if p.is_file())}")
+    roots = []
+    for i, part in enumerate(parts):
+        root = work / f"rootfs{i}"
+        unsquash(part, root, tools)
+        core = root / "filesystem_core.squashfs"
+        if core.exists():
+            unsquash(core, work / f"core{i}", tools)
+            root = work / f"core{i}"
+        roots.append(root)
+    return roots
+
+
 def manifest(root: Path) -> dict[str, str]:
     out = {}
     for p in sorted(root.rglob("*")):
