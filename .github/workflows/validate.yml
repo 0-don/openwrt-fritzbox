@@ -1,0 +1,68 @@
+name: daily validation
+
+# Builds and proves every FRITZ!Box model AVM currently publishes an image and GPL archive for.
+# Uploads nothing: the result is the job status and the step summary text.
+
+on:
+  schedule:
+    - cron: "23 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  models:
+    runs-on: ubuntu-24.04
+    outputs:
+      list: ${{ steps.list.outputs.list }}
+      freetz_rev: ${{ steps.list.outputs.freetz_rev }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: list
+        run: |
+          echo "list=$(python3 -I ci/resolve.py --list)" >> "$GITHUB_OUTPUT"
+          echo "freetz_rev=$(git ls-remote https://github.com/Freetz-NG/freetz-ng.git HEAD | cut -f1)" >> "$GITHUB_OUTPUT"
+
+  validate:
+    needs: models
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 340
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        model: ${{ fromJSON(needs.models.outputs.list) }}
+        # The arm64 runner is free for public repositories only.
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    env:
+      W: ${{ github.workspace }}/../fritz-build
+      FREETZ_REV: ${{ needs.models.outputs.freetz_rev }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+
+      - name: Host packages
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq squashfs-tools bc subversion flex bison libelf-dev libssl-dev kmod
+          [ "$RUNNER_ARCH" = X64 ] && sudo apt-get install -y -qq gcc-multilib
+          git clone -q --depth 1 https://github.com/Freetz-NG/freetz-ng.git "$RUNNER_TEMP/freetz"
+          "$RUNNER_TEMP/freetz/tools/prerequisites" install -y
+
+      # Toolchain only (our own build of GCC); AVM's image and GPL archive are fetched fresh every run.
+      - name: Restore Freetz toolchain
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.W }}/freetz-ng
+          key: freetz-${{ runner.arch }}-${{ matrix.model }}-${{ env.FREETZ_REV }}
+          restore-keys: freetz-${{ runner.arch }}-${{ matrix.model }}-
+
+      - name: Build and prove
+        run: ci/run.sh "${{ matrix.model }}"
+
+      - name: Summary
+        if: always()
+        run: cat "$W"/*/report/summary.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true

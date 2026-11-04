@@ -1,0 +1,4 @@
+# Learning material: AVM binaries, decompiled code (UrhG 69e Abs. 2), Ghidra projects, reference checkouts
+/lab/
+*.image
+__pycache__/
