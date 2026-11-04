@@ -1,0 +1,63 @@
+diff -ru a/include/linux/skbuff.h b/include/linux/skbuff.h
+--- a/include/linux/skbuff.h	2026-11-04 02:18:53.366402408 +0100
++++ b/include/linux/skbuff.h	2026-11-04 02:18:53.367331085 +0100
+@@ -686,9 +686,6 @@
+ #ifdef CONFIG_XFRM
+ 	struct	sec_path	*sp;
+ #endif
+-#if defined(CONFIG_NF_CONNTRACK) || defined(CONFIG_NF_CONNTRACK_MODULE)
+-	struct nf_conntrack	*nfct;
+-#endif
+ #if IS_ENABLED(CONFIG_AVM_PA_GENERIC_CT)
+ 	struct generic_ct_data	ct_data;
+ #define SKB_GENERIC_CT(skb) ((skb)->ct_data.generic_ct)
+@@ -850,6 +847,11 @@
+ 				*data;
+ 	unsigned int		truesize;
+ 	atomic_t		users;
++#ifndef __GENKSYMS__
++#if defined(CONFIG_NF_CONNTRACK) || defined(CONFIG_NF_CONNTRACK_MODULE)
++	struct nf_conntrack	*nfct;
++#endif
++#endif
+ };
+ 
+ #ifdef __KERNEL__
+diff -ru a/include/net/net_namespace.h b/include/net/net_namespace.h
+--- a/include/net/net_namespace.h	2026-11-04 02:18:53.366890962 +0100
++++ b/include/net/net_namespace.h	2026-11-04 02:18:53.367752448 +0100
+@@ -117,16 +117,9 @@
+ #ifdef CONFIG_NETFILTER
+ 	struct netns_nf		nf;
+ 	struct netns_xt		xt;
+-#if defined(CONFIG_NF_CONNTRACK) || defined(CONFIG_NF_CONNTRACK_MODULE)
+-	struct netns_ct		ct;
+-#endif
+ #if defined(CONFIG_NF_TABLES) || defined(CONFIG_NF_TABLES_MODULE)
+ 	struct netns_nftables	nft;
+ #endif
+-#if IS_ENABLED(CONFIG_NF_DEFRAG_IPV6)
+-	struct netns_nf_frag	nf_frag;
+-	struct ctl_table_header *nf_frag_frags_hdr;
+-#endif
+ 	struct sock		*nfnl;
+ 	struct sock		*nfnl_stash;
+ #if IS_ENABLED(CONFIG_NETFILTER_NETLINK_ACCT)
+@@ -162,6 +155,17 @@
+ #endif
+ 	struct sock		*diag_nlsk;
+ 	atomic_t		fnhe_genid;
++#ifndef __GENKSYMS__
++#if defined(CONFIG_NF_CONNTRACK) || defined(CONFIG_NF_CONNTRACK_MODULE)
++	struct netns_ct		ct;
++#endif
++#endif
++#ifndef __GENKSYMS__
++#if IS_ENABLED(CONFIG_NF_DEFRAG_IPV6)
++	struct netns_nf_frag	nf_frag;
++	struct ctl_table_header *nf_frag_frags_hdr;
++#endif
++#endif
+ };
+ 
+ #include <linux/seq_file_net.h>
